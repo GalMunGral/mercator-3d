@@ -1,0 +1,17 @@
+{
+  "name": "poly-solver",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "esbuild src/index.ts --loader:.wgsl=text --loader:.jpg=file --bundle --outdir=dist --watch --serve --serve-fallback=index.html",
+    "build": "esbuild src/index.ts --loader:.wgsl=text --loader:.jpg=file --bundle --outdir=dist && cp index.html dist"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@webgpu/types": "^0.1.44",
+    "esbuild": "^0.23.1",
+    "typescript": "^5.5.4"
+  }
+}
