@@ -112,7 +112,7 @@ async function main() {
       GPUTextureUsage.RENDER_ATTACHMENT,
   });
 
-  const uniformValues = new Float32Array(6);
+  const uniformValues = new Float32Array(8);
   const uniformBuffer = device.createBuffer({
     size: Math.max(32, uniformValues.byteLength),
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -149,12 +149,13 @@ async function main() {
   const R = 10;
   let theta = 0;
   let prev = Infinity;
-  let d = 10 * R;
-  let h = R;
+  let d = 5 * R;
+  let h = 2 * R;
+  let alpha = 0;
+  let beta = 0;
 
   function render(t: number) {
     const dt = 0.001 * Math.max(0, t - prev);
-    theta += 0.5 * dt;
     prev = t;
     if (keydown["w"]) {
       d -= R * 5 * dt;
@@ -163,18 +164,29 @@ async function main() {
       d += R * 5 * dt;
     }
     if (keydown["ArrowUp"]) {
-      h += R * 5 * dt;
+      alpha += dt;
     }
     if (keydown["ArrowDown"]) {
-      h -= R * 5 * dt;
+      alpha -= dt;
     }
-    d = Math.min(10 * R, Math.max(R, d));
+    if (keydown["ArrowLeft"]) {
+      beta += dt;
+    }
+    if (keydown["ArrowRight"]) {
+      beta -= dt;
+    }
+    if (Object.values(keydown).every((x) => !x)) {
+      theta += 0.5 * dt;
+    }
+    d = Math.min(10 * R, Math.max(0.1, d));
     uniformValues.set([
       d * Math.cos(theta),
       d * Math.sin(theta),
       h,
       width,
       height,
+      alpha,
+      beta,
     ]);
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
