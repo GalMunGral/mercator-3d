@@ -17,26 +17,92 @@ struct Uniforms {
 @group(0) @binding(1) var uTexture: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
-fn hitSphere(p: vec3f, v: vec3f) -> f32 {
+const SPHERE: u32 = 1 << 0;
+const CYLINDER: u32 = 1 << 1;
+const CYLINDER_2: u32 = 1 << 2;
+
+fn hitSphere(_p: vec3f, v: vec3f, object: u32) -> f32 {
+  var p = _p;
   let t = dot(-p, v);
   let r = length(p + t * v);
-  if r > R { return -1; }
+  if r > R {
+    return -1;
+  }
+  let t_test = select(t, t - abs(t), bool(object & SPHERE));
   let d = sqrt(R * R - r * r);
-  if t < -d { return -1; };
-  return select(t - d, t + d, t < d);
+  if t_test < -d {
+    return -1;
+  };
+  return select(t - d, t + d, t_test < d);
 }
 
-fn hitCylinder(p: vec3f, v: vec3f) -> f32 {
-  let u = v / length(v.xy);
+fn hitCylinder(_p: vec3f, u: vec3f, object: u32) -> f32 {
+  var p = _p;
   let t = dot(-p.xy, u.xy);
   let r = length(p.xy + t * u.xy);
-  if r > R { return -1; }
+  if r > R {
+    return -1;
+  }
+  let t_test = select(t, t - abs(t), bool(object & CYLINDER));
   let d = sqrt(R * R - r * r);
-  if t < -d { return -1; };
-  return select(t - d, t + d, t < d);
+  if t_test < -d {
+    return -1;
+  };
+  return select(t - d, t + d, t_test < d);
+}
+
+fn hitCylinder_2(_p: vec3f, w: vec3f, object: u32) -> f32 {
+  var p = _p;
+  let t = dot(-p.yz, w.yz);
+  let r = length(p.yz + t * w.yz);
+  if r > R {
+    return -1;
+  }
+  let t_test = select(t, t - abs(t), bool(object & CYLINDER_2));
+  let d = sqrt(R * R - r * r);
+  if t_test < -d {
+    return -1;
+  };
+  return select(t - d, t + d, t_test < d);
 }
 
 const f = 1f;
+const ambient = 0.2;
+const diffuse = 0.8;
+
+fn sampleSphere(q: vec3f, l: vec3f) -> vec4f {
+  const a = 1;
+  let u = (atan2(q.y, q.x) + pi) / (2 * pi);
+  let v = (-atan2(q.z, length(q.xy)) + pi / 2) / pi;
+  let phong = ambient + diffuse * abs(dot(l, normalize(q)));
+  let c = textureSample(uTexture, uSampler, vec2f(u, v)) * phong;
+  return vec4f(c.rgb, a);
+}
+
+fn sampleCylinder(q: vec3f, l: vec3f) -> vec4f {
+  let a = clamp((length(uniforms.eye.xy) / R - 1) / 10, 0, 1);
+  let u = (atan2(q.y, q.x) + pi) / (2 * pi);
+  let v = 1 - 2 * atan(exp(q.z / R)) / pi; // check this
+  let phong = ambient + diffuse * abs(dot(l, normalize(vec3f(q.xy, 0)))); // check this
+  let c = textureSample(uTexture, uSampler, vec2f(u, v)) * phong;
+  return vec4f(c.rgb, a);
+}
+
+fn sampleCylinder_2(q: vec3f, l: vec3f) -> vec4f {
+  let a = clamp((length(uniforms.eye.xy) / R - 1) / 10, 0, 1);
+  let theta = atan2(q.z, q.y);
+  let phi = 2 * atan(exp(q.x / R)) - pi / 2; // check this
+  let phong = ambient + diffuse * abs(dot(l, normalize(vec3f(q.yz, 0)))); // check this
+  let x = sin(phi);
+  let y = cos(phi) * cos(theta);
+  let z = cos(phi) * sin(theta);
+  let u = atan2(y, x) / (2 * pi) + 0.5;
+  let v = 0.5 - atan2(z, sqrt(x * x + y * y)) / pi;
+  let c = textureSample(uTexture, uSampler, vec2f(u, v)) * phong;
+  return vec4f(c.rgb, a);
+}
+
+const eps = 1e-9;
 
 @fragment
 fn fsMain(@builtin(position) pos: vec4f) -> @location(0) vec4f {
@@ -53,38 +119,59 @@ const pixel_size = 0.0005;
     (pos.x - uniforms.viewport_width / 2) * scale * right +
     -(pos.y - uniforms.viewport_height / 2) * scale * up
   );
+  let u = v / length(v.xy);
+  let w = v / length(v.yz);
 
+  let l = normalize(-2 * R * forward + R * right + R * up);
+
+  var p = uniforms.eye;
   var C = vec3f();
   var a = 0.0;
-  
-  let light = normalize(-2 * R * forward + R * right + R * up);
-  let p = uniforms.eye;
-  const ambient = 0.2;
-  const diffuse = 0.8;
+  var object: u32 = 0;
 
-  let a_c = clamp((length(uniforms.eye.xy) / R - 4) / 4, 0, 1);
-  let t_c = hitCylinder(p, v);
-  let q_c = p + t_c * v;
-  let u_c = (atan2(q_c.y, q_c.x) + pi) / (2 * pi);
-  let v_c = 1 - 2 * atan(exp(q_c.z / R)) / pi; // check this
-  let phong_c = ambient + diffuse * dot(light, normalize(vec3f(q_c.xy, 0))); // check this
-  let c_c = textureSample(uTexture, uSampler, vec2f(u_c, v_c)) * phong_c;
-  if t_c >= 0 {
-    C += (1 - a) * a_c * c_c.rgb;
-    a += (1 - a) * a_c;
+  for (var i = 0; i < 6; i++) {
+    var t = -1f;
+    var c = vec4f();
+    let t1 = hitSphere(p, v, object);
+    let c1 = sampleSphere(p + t1 * v, l);
+    let t2 = hitCylinder(p, u, object);
+    let c2 = sampleCylinder(p + t2 * u, l);
+    let t3 = hitCylinder_2(p, w, object);
+    let c3 = sampleCylinder_2(p + t3 * w, l);
+    if t1 > 0 && (t < 0 || t1 < t) {
+      t = t1;
+      c = c1;
+    }
+    if t2 > 0 && (t == -1 || t2 < t) {
+      t = t2;
+      c = c2;
+    }
+    // if t3 > 0 && (t == -1 || t3 < t) {
+    //   t = t3;
+    //   c = c3;
+    // }
+    if t > 0 {
+      if abs(t - t1) < eps {
+        object |= SPHERE;
+      } else {
+        object &= ~SPHERE;
+      }
+      if abs(t - t2) < eps {
+        object |= CYLINDER;
+      } else {
+        object &= ~CYLINDER;
+      }
+      if abs(t - t3) < eps {
+        object |= CYLINDER_2;
+      } else {
+        object &= ~CYLINDER_2;
+      }
+      C += (1 - a) * c.a * c.rgb;
+      a += (1 - a) * c.a;
+      p += t * v;
+    }
   }
 
-  const a_s = 1.0;
-  let t_s = hitSphere(p, v);
-  let q_s = p + t_s * v;
-  let u_s = (atan2(q_s.y, q_s.x) + pi) / (2 * pi);
-  let v_s = (-atan2(q_s.z, length(q_s.xy)) + pi / 2) / pi;
-  let phong_s = ambient + diffuse * dot(light, normalize(q_s));
-  let c_s = textureSample(uTexture, uSampler, vec2f(u_s, v_s)) * phong_s;
-  if t_s >= 0 {
-    C += (1 - a) * a_s * c_s.rgb;
-    a += (1 - a) * a_s;
-  }
   
   return vec4f(C, 1);
 }

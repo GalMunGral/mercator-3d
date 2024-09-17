@@ -162,7 +162,13 @@ async function main() {
     if (keydown["s"]) {
       d += R * 5 * dt;
     }
-    d = Math.min(6 * R, Math.max(4 * R, d));
+    if (keydown["ArrowUp"]) {
+      h += R * 5 * dt;
+    }
+    if (keydown["ArrowDown"]) {
+      h -= R * 5 * dt;
+    }
+    d = Math.min(10 * R, Math.max(R, d));
     uniformValues.set([
       d * Math.cos(theta),
       d * Math.sin(theta),
