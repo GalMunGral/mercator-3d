@@ -1,5 +1,5 @@
 import shaderSrc from "./mercator.wgsl";
-import imageUrl from "./test.jpg";
+import imageUrl from "./blue-marble.jpg";
 
 export type TypedArray = Float32Array | Uint16Array;
 export type TypedArrayConstructor = new (a: ArrayBuffer) => TypedArray;
@@ -31,8 +31,6 @@ async function main() {
   canvas.style.width = width / devicePixelRatio + "px";
   canvas.style.height = height / devicePixelRatio + "px";
 
-  const sceneBuffer: number[] = [];
-
   const context: GPUCanvasContext = canvas.getContext("webgpu")!;
 
   const adapter = (await navigator.gpu.requestAdapter())!;
@@ -45,7 +43,7 @@ async function main() {
     alphaMode: "premultiplied",
   });
 
-  const sampleCount = 1;
+  const sampleCount = 4;
 
   const renderTarget = device.createTexture({
     size: [canvas.width, canvas.height],
@@ -69,7 +67,7 @@ async function main() {
 
   const shaderModule = device.createShaderModule({ code: shaderSrc });
   const pipeline = device.createRenderPipeline({
-    label: "newton-vg",
+    label: "mercator",
     layout: "auto",
     vertex: {
       module: shaderModule,
@@ -114,7 +112,7 @@ async function main() {
 
   const uniformValues = new Float32Array(8);
   const uniformBuffer = device.createBuffer({
-    size: Math.max(32, uniformValues.byteLength),
+    size: uniformValues.byteLength,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
@@ -138,55 +136,59 @@ async function main() {
   );
 
   const keydown: Record<string, boolean> = {};
+  window.onkeydown = (e) => (keydown[e.key] = true);
+  window.onkeyup = (e) => (keydown[e.key] = false);
 
-  window.onkeydown = (e) => {
-    keydown[e.key] = true;
-  };
-  window.onkeyup = (e) => {
-    keydown[e.key] = false;
-  };
-
-  const R = 10;
+  let r = 8;
+  let z = 2;
   let theta = 0;
-  let prev = Infinity;
-  let d = 5 * R;
-  let h = 2 * R;
+
   let alpha = 0;
   let beta = 0;
 
+  let prev = Infinity;
+
   function render(t: number) {
-    const dt = 0.001 * Math.max(0, t - prev);
+    const dt = Math.max(0, t - prev) / 1000;
     prev = t;
+
     if (keydown["w"]) {
-      d -= R * 5 * dt;
+      r = Math.max(0.1, r - 5 * dt);
     }
     if (keydown["s"]) {
-      d += R * 5 * dt;
+      r = Math.min(10, r + 5 * dt);
     }
+
+    let paused = false;
     if (keydown["ArrowUp"]) {
       alpha += dt;
+      paused = true;
     }
     if (keydown["ArrowDown"]) {
       alpha -= dt;
+      paused = true;
     }
     if (keydown["ArrowLeft"]) {
       beta += dt;
+      paused = true;
     }
     if (keydown["ArrowRight"]) {
       beta -= dt;
+      paused = true;
     }
-    if (Object.values(keydown).every((x) => !x)) {
-      theta += 0.5 * dt;
+
+    if (!paused) {
+      theta += dt;
     }
-    d = Math.min(10 * R, Math.max(0.1, d));
+
     uniformValues.set([
-      d * Math.cos(theta),
-      d * Math.sin(theta),
-      h,
       width,
       height,
       alpha,
       beta,
+      r * Math.cos(theta),
+      r * Math.sin(theta),
+      z,
     ]);
     device.queue.writeBuffer(uniformBuffer, 0, uniformValues);
 
@@ -194,9 +196,8 @@ async function main() {
     const passEncoder = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
-          // view: renderTarget.createView(),
-          // resolveTarget: context.getCurrentTexture().createView(),
-          view: context.getCurrentTexture().createView(),
+          view: renderTarget.createView(),
+          resolveTarget: context.getCurrentTexture().createView(),
           clearValue: { r: 0, g: 0, b: 0, a: 0 },
           loadOp: "clear",
           storeOp: "store",
